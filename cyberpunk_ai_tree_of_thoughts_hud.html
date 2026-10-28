@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>M.A.T.o.T // Multi-Agent Tree-of-Thoughts HUD</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-black: #000000;
+            --hud-border: rgba(120, 130, 145, 0.28);
+            --hud-border-bright: rgba(220, 230, 245, 0.65);
+            --magenta-glow: #ff007f;
+            --purple-glow: #d900ff;
+            --optimal-white: #ffffff;
+            --cyan-accent: #00f0ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-black);
+            color: #d4d8e0;
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+        }
+
+        /* Subtle CRT & Grid Overlay */
+        .crt-overlay {
+            background: 
+                linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.35) 50%), 
+                radial-gradient(circle at 50% 55%, rgba(25, 10, 35, 0.12) 0%, rgba(0, 0, 0, 0.75) 85%);
+            background-size: 100% 3px, 100% 100%;
+            pointer-events: none;
+        }
+
+        .hud-grid-bg {
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+        }
+
+        /* Cyberpunk Rectangular Panel with Corner Brackets */
+        .hud-panel {
+            position: relative;
+            background: rgba(6, 7, 10, 0.78);
+            border: 1px solid var(--hud-border);
+            backdrop-filter: blur(6px);
+        }
+
+        .hud-panel::before,
+        .hud-panel::after {
+            content: '';
+            position: absolute;
+            width: 7px;
+            height: 7px;
+            border-color: var(--hud-border-bright);
+            pointer-events: none;
+            transition: all 0.25s ease;
+        }
+
+        .hud-panel::before {
+            top: -1px;
+            left: -1px;
+            border-top: 1.5px solid var(--hud-border-bright);
+            border-left: 1.5px solid var(--hud-border-bright);
+        }
+
+        .hud-panel::after {
+            bottom: -1px;
+            right: -1px;
+            border-bottom: 1.5px solid var(--hud-border-bright);
+            border-right: 1.5px solid var(--hud-border-bright);
+        }
+
+        /* Active Pipeline Stage Styles */
+        .pipeline-step {
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            border: 1px solid rgba(110, 120, 135, 0.25);
+            background: rgba(10, 12, 16, 0.75);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pipeline-step.active-white {
+            border-color: rgba(255, 255, 255, 0.9);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 18px rgba(255, 255, 255, 0.18), inset 0 0 12px rgba(255, 255, 255, 0.08);
+        }
+
+        .pipeline-step.active-magenta {
+            border-color: var(--magenta-glow);
+            background: rgba(255, 0, 127, 0.11);
+            box-shadow: 0 0 22px rgba(255, 0, 127, 0.3), inset 0 0 14px rgba(217, 0, 255, 0.15);
+        }
+
+        /* HUD Buttons */
+        .hud-btn {
+            border: 1px solid rgba(140, 150, 165, 0.35);
+            background: rgba(15, 17, 23, 0.85);
+            color: #e2e8f0;
+            transition: all 0.18s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            font-size: 11px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .hud-btn:hover {
+            border-color: #ffffff;
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 0 12px rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+        }
+
+        .hud-btn:active {
+            transform: translateY(1px);
+        }
+
+        .hud-btn-magenta {
+            border-color: rgba(255, 0, 127, 0.55);
+            color: #ff85c1;
+        }
+
+        .hud-btn-magenta:hover {
+            border-color: #ff007f;
+            background: rgba(255, 0, 127, 0.18);
+            box-shadow: 0 0 15px rgba(255, 0, 127, 0.45);
+            color: #ffffff;
+        }
+
+        /* Custom Range Slider */
+        input[type=range].hud-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(255, 255, 255, 0.12);
+            height: 4px;
+            border-radius: 0px;
+            outline: none;
+        }
+
+        input[type=range].hud-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 10px;
+            height: 14px;
+            background: #ffffff;
+            cursor: pointer;
+            border: 1px solid #000;
+            box-shadow: 0 0 8px #ffffff;
+        }
+
+        .glow-text-white {
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.75);
+        }
+
+        .glow-text-magenta {
+            text-shadow: 0 0 10px rgba(255, 0, 127, 0.8), 0 0 20px rgba(217, 0, 255, 0.5);
+        }
+
+        @keyframes pulse-fast {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .blink-dot {
+            animation: pulse-fast 1.2s infinite;
+        }
+    </style>
+</head>
+<body class="relative w-screen h-screen overflow-hidden bg-black select-none">
+
+    <!-- Background Subtle Grid -->
+    <div class="hud-grid-bg absolute inset-0 z-0"></div>
+
+    <!-- Main Fullscreen Tree-of-Thoughts Canvas -->
+    <canvas id="totCanvas" class="absolute inset-0 w-full h-full z-10 block cursor-crosshair"></canvas>
+
+    <!-- CRT Scanline & Vignette Overlay -->
+    <div class="crt-overlay absolute inset-0 z-20"></div>
+
+    <!-- Floating Side Telemetry Readouts (Left & Right Mid-Screen) -->
+    <div class="hidden xl:flex flex-col gap-2 absolute left-5 top-1/2 -translate-y-1/2 z-30 w-56 pointer-events-none">
+        <div class="hud-panel p-2.5 text-[10px] space-y-1.5">
+            <div class="flex justify-between items-center text-neutral-400 border-b border-neutral-800 pb-1">
+                <span>AGENT_SWARM_MATRIX</span>
+                <span class="text-white font-semibold">ONLINE</span>
+            </div>
+            <div class="grid grid-cols-2 gap-y-1 text-neutral-300">
+                <span class="text-neutral-500">TOTAL_FILAMENTS:</span>
+                <span id="statFilaments" class="text-right text-white font-semibold">3,420</span>
+                <span class="text-neutral-500">ACTIVE_FRONTIER:</span>
+                <span id="statFrontier" class="text-right text-neutral-200">248</span>
+                <span class="text-neutral-500">PRUNED_THOUGHTS:</span>
+                <span id="statPruned" class="text-right text-neutral-400">1,892</span>
+                <span class="text-neutral-500">SPIDER_VECTORS:</span>
+                <span id="statSpiders" class="text-right text-[#ff007f] glow-text-magenta font-semibold">64</span>
+            </div>
+        </div>
+
+        <div class="hud-panel p-2.5 text-[10px] space-y-1">
+            <div class="text-neutral-500 flex justify-between">
+                <span>APEX_PATH_CONFIDENCE</span>
+                <span id="statConfidence" class="text-white font-bold">99.42%</span>
+            </div>
+            <div class="w-full bg-neutral-900 h-1.5 overflow-hidden border border-neutral-800">
+                <div id="confidenceBar" class="bg-white h-full shadow-[0_0_10px_#fff] transition-all duration-300" style="width: 96%"></div>
+            </div>
+            <div class="text-[9px] text-neutral-500 pt-1 flex justify-between">
+                <span>HEURISTIC: MCTS-OMEGA</span>
+                <span class="text-[#ff007f]">L2-SYNTH</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Floating Live Event Log -->
+    <div class="hidden xl:flex flex-col gap-2 absolute right-5 top-1/2 -translate-y-1/2 z-30 w-64 pointer-events-none">
+        <div class="hud-panel p-2.5 text-[10px]">
+            <div class="flex justify-between items-center text-neutral-400 border-b border-neutral-800 pb-1 mb-1.5">
+                <span>NEURAL_SYNTHESIS_LOG</span>
+                <span class="w-2 h-2 rounded-full bg-[#ff007f] blink-dot"></span>
+            </div>
+            <div id="eventLog" class="space-y-1 font-mono text-[9.5px] h-36 overflow-hidden flex flex-col justify-end text-neutral-400">
+                <!-- Populated dynamically at 60fps/intervals -->
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD Layout Container (Top Header & Bottom Dashboard) -->
+    <div class="relative z-30 flex flex-col justify-between w-full h-full p-3 md:p-5 pointer-events-none">
+
+        <!-- ================= TOP HEADER HUD ================= -->
+        <header class="w-full flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 pointer-events-auto">
+            <!-- Left: System Title & Core Status -->
+            <div class="hud-panel px-3.5 py-2 flex items-center justify-between lg:justify-start gap-4">
+                <div class="flex items-center gap-2.5">
+                    <div class="relative flex items-center justify-center w-3.5 h-3.5">
+                        <span class="absolute inset-0 bg-white opacity-30 animate-ping"></span>
+                        <span class="w-2 h-2 bg-white shadow-[0_0_8px_#fff]"></span>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs md:text-sm font-bold tracking-widest text-white glow-text-white">SYS.MAToT // v9.4.2</span>
+                            <span class="text-[10px] px-1.5 py-0.5 bg-white/10 border border-white/30 text-white">KERNEL_ACTIVE</span>
+                        </div>
+                        <p class="text-[10px] text-neutral-400 tracking-wider">MULTI-AGENT TREE-OF-THOUGHTS REASONING ENGINE</p>
+                    </div>
+                </div>
+
+                <div class="hidden sm:flex items-center gap-4 border-l border-neutral-800 pl-4 text-[10px]">
+                    <div>
+                        <div class="text-neutral-500">ROOT_SEED</div>
+                        <div id="seedReadout" class="text-white font-semibold">0x8F9A..E21C</div>
+                    </div>
+                    <div>
+                        <div class="text-neutral-500">TREE_DEPTH</div>
+                        <div id="depthReadout" class="text-white font-semibold">L-11 // 3,840 NODES</div>
+                    </div>
+                    <div>
+                        <div class="text-neutral-500">FRAME_RATE</div>
+                        <div class="text-emerald-400 font-semibold"><span id="fpsCounter">60</span> FPS</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Interactive Cyberpunk Controls -->
+            <div class="hud-panel px-3 py-2 flex flex-wrap items-center justify-between sm:justify-end gap-2.5">
+                <div class="flex items-center gap-2 pr-2 border-r border-neutral-800">
+                    <label for="densitySlider" class="text-[10px] text-neutral-400 uppercase tracking-wider">Filaments:</label>
+                    <input id="densitySlider" type="range" min="1200" max="4500" step="100" value="3000" class="hud-slider w-20 sm:w-24">
+                    <span id="densityValue" class="text-[10px] text-white w-9 text-right">3000</span>
+                </div>
+
+                <div class="flex items-center gap-1.5">
+                    <button id="btnStepStage" class="hud-btn" title="Advance Pipeline Stage">STEP STAGE</button>
+                    <button id="btnSpiderBurst" class="hud-btn hud-btn-magenta" title="Trigger Cross-Branch Laser Synthesis">SPIDER SWEEP</button>
+                    <button id="btnReseed" class="hud-btn" title="Generate New Fractal Tree & Optimal Lightning Path">RE-SEED TREE</button>
+                    <button id="btnPause" class="hud-btn" title="Pause / Resume Simulation">PAUSE</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Center Interaction Hint (Fades out subtly or stays unobtrusive) -->
+        <div class="pointer-events-none flex justify-between items-end w-full px-1 text-[10px] text-neutral-500">
+            <div class="hidden sm:block">
+                <span class="text-neutral-300">[CLICK / TAP CANVAS]</span> INJECT SPIDER CROSS-LINK CLUSTER AT CURSOR
+            </div>
+            <div class="hidden sm:block text-right">
+                APEX TARGET: <span id="apexCoords" class="text-white">X:0.00 Y:0.00</span> // OPTIMAL_LOCK: <span class="text-[#ff007f]">ENGAGED</span>
+            </div>
+        </div>
+
+        <!-- ================= BOTTOM DASHBOARD HUD ================= -->
+        <footer class="w-full grid grid-cols-1 lg:grid-cols-12 gap-2.5 items-stretch pointer-events-auto">
+
+            <!-- LEFT TELEMETRY CHART: Entropy & Search Breadth -->
+            <div class="hud-panel lg:col-span-3 p-2.5 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-[10px] mb-1">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 bg-white"></span>
+                        <span class="text-neutral-300 font-semibold tracking-wider">SHANNON_ENTROPY // BREADTH</span>
+                    </div>
+                    <span id="leftChartVal" class="text-white font-bold">2.84 bits</span>
+                </div>
+                <div class="relative w-full h-14 bg-black/60 border border-neutral-800/80 overflow-hidden">
+                    <canvas id="leftChartCanvas" class="w-full h-full block"></canvas>
+                </div>
+                <div class="flex justify-between text-[9px] text-neutral-500 mt-1">
+                    <span>EXPLORATION_RATE: <strong id="exploreRateTxt" class="text-neutral-300">84.2%</strong></span>
+                    <span>BRANCH_FACTOR: <strong class="text-white">b=3.8</strong></span>
+                </div>
+            </div>
+
+            <!-- CENTER 4-STAGE PIPELINE STATUS INDICATOR -->
+            <div class="hud-panel lg:col-span-6 p-2.5 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-[10px] border-b border-neutral-800/90 pb-1.5 mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="text-neutral-400 uppercase tracking-widest">AUTONOMOUS PIPELINE ORCHESTRATOR</span>
+                        <span id="pipelineCycleBadge" class="text-[9px] px-1.5 py-0.2 bg-white/10 text-white border border-white/20">AUTO_SYNC</span>
+                    </div>
+                    <div class="text-neutral-400">
+                        CYCLE_TIME: <span id="cycleTimerTxt" class="text-white">01.84s</span>
+                    </div>
+                </div>
+
+                <!-- 4 Pipeline Stages Grid -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 my-auto">
+                    <!-- Stage 1: Breadth -->
+                    <div id="stage-0" data-stage="0" class="pipeline-step p-2 cursor-pointer select-none">
+                        <div class="flex items-center justify-between text-[9px] text-neutral-400 mb-1">
+                            <span>STAGE 01</span>
+                            <span class="stage-dot w-1.5 h-1.5 bg-neutral-600"></span>
+                        </div>
+                        <div class="text-xs font-bold text-white tracking-wider">1. BREADTH</div>
+                        <div class="text-[9px] text-neutral-400 mt-0.5 truncate">Fractal Expansion</div>
+                        <div class="w-full bg-neutral-900 h-1 mt-2 overflow-hidden">
+                            <div id="prog-0" class="h-full bg-white w-0 transition-none"></div>
+                        </div>
+                    </div>
+
+                    <!-- Stage 2: Critic -->
+                    <div id="stage-1" data-stage="1" class="pipeline-step p-2 cursor-pointer select-none">
+                        <div class="flex items-center justify-between text-[9px] text-neutral-400 mb-1">
+                            <span>STAGE 02</span>
+                            <span class="stage-dot w-1.5 h-1.5 bg-neutral-600"></span>
+                        </div>
+                        <div class="text-xs font-bold text-white tracking-wider">2. CRITIC</div>
+                        <div class="text-[9px] text-neutral-400 mt-0.5 truncate">Value & Prune Scan</div>
+                        <div class="w-full bg-neutral-900 h-1 mt-2 overflow-hidden">
+                            <div id="prog-1" class="h-full bg-white w-0 transition-none"></div>
+                        </div>
+                    </div>
+
+                    <!-- Stage 3: Local Repair -->
+                    <div id="stage-2" data-stage="2" class="pipeline-step p-2 cursor-pointer select-none">
+                        <div class="flex items-center justify-between text-[9px] text-neutral-400 mb-1">
+                            <span>STAGE 03</span>
+                            <span class="stage-dot w-1.5 h-1.5 bg-neutral-600"></span>
+                        </div>
+                        <div class="text-xs font-bold text-white tracking-wider">3. LOCAL REPAIR</div>
+                        <div class="text-[9px] text-neutral-400 mt-0.5 truncate">Backtrack & Mutate</div>
+                        <div class="w-full bg-neutral-900 h-1 mt-2 overflow-hidden">
+                            <div id="prog-2" class="h-full bg-[#ff007f] w-0 transition-none"></div>
+                        </div>
+                    </div>
+
+                    <!-- Stage 4: Spider Collect -->
+                    <div id="stage-3" data-stage="3" class="pipeline-step p-2 cursor-pointer select-none">
+                        <div class="flex items-center justify-between text-[9px] text-neutral-400 mb-1">
+                            <span>STAGE 04</span>
+                            <span class="stage-dot w-1.5 h-1.5 bg-neutral-600"></span>
+                        </div>
+                        <div class="text-xs font-bold text-white tracking-wider">4. SPIDER COLLECT</div>
+                        <div class="text-[9px] text-neutral-400 mt-0.5 truncate">Cross-Branch Synth</div>
+                        <div class="w-full bg-neutral-900 h-1 mt-2 overflow-hidden">
+                            <div id="prog-3" class="h-full bg-[#ff007f] w-0 transition-none"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT TELEMETRY CHART: Critic Convergence & Spider Flux -->
+            <div class="hud-panel lg:col-span-3 p-2.5 flex flex-col justify-between">
+                <div class="flex items-center justify-between text-[10px] mb-1">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 bg-[#ff007f] shadow-[0_0_6px_#ff007f]"></span>
+                        <span class="text-neutral-300 font-semibold tracking-wider">SPIDER_FLUX // CRITIC_Q</span>
+                    </div>
+                    <span id="rightChartVal" class="text-[#ff007f] glow-text-magenta font-bold">0.984 Q</span>
+                </div>
+                <div class="relative w-full h-14 bg-black/60 border border-neutral-800/80 overflow-hidden">
+                    <canvas id="rightChartCanvas" class="w-full h-full block"></canvas>
+                </div>
+                <div class="flex justify-between text-[9px] text-neutral-500 mt-1">
+                    <span>CROSS_LINKS/SEC: <strong id="spiderRateTxt" class="text-[#ff007f]">142/s</strong></span>
+                    <span>LATENCY: <strong class="text-white">1.4ms</strong></span>
+                </div>
+            </div>
+
+        </footer>
+    </div>
+
+    <script>
+        /**
+         * CYBERPUNK MULTI-AGENT TREE-OF-THOUGHTS HUD VISUALIZATION
+         * High-performance 60 FPS Canvas Engine
+         * - Thousands of semi-transparent white fractal filaments growing from bottom root
+         * - Blazing white glowing Optimal Path lightning from root to highest apex node
+         * - Real-time magenta/purple (#ff007f / #d900ff) Spider Nodes & cross-branch lasers + particles
+         * - Synchronized 4-Stage Pipeline & live dual scrolling telemetry charts
+         */
+        (() => {
+            // --- DOM Elements ---
+            const canvas = document.getElementById('totCanvas');
+            const ctx = canvas.getContext('2d', { alpha: false });
+
+            const leftChartCanvas = document.getElementById('leftChartCanvas');
+            const leftChartCtx = leftChartCanvas.getContext('2d');
+            const rightChartCanvas = document.getElementById('rightChartCanvas');
+            const rightChartCtx = rightChartCanvas.getContext('2d');
+
+            const densitySlider = document.getElementById('densitySlider');
+            const densityValue = document.getElementById('densityValue');
+            const btnReseed = document.getElementById('btnReseed');
+            const btnSpiderBurst = document.getElementById('btnSpiderBurst');
+            const btnStepStage = document.getElementById('btnStepStage');
+            const btnPause = document.getElementById('btnPause');
+
+            const fpsCounter = document.getElementById('fpsCounter');
+            const seedReadout = document.getElementById('seedReadout');
+            const depthReadout = document.getElementById('depthReadout');
+            const statFilaments = document.getElementById('statFilaments');
+            const statFrontier = document.getElementById('statFrontier');
+            const statPruned = document.getElementById('statPruned');
+            const statSpiders = document.getElementById('statSpiders');
+            const statConfidence = document.getElementById('statConfidence');
+            const confidenceBar = document.getElementById('confidenceBar');
+            const apexCoords = document.getElementById('apexCoords');
+            const eventLog = document.getElementById('eventLog');
+
+            const leftChartVal = document.getElementById('leftChartVal');
+            const rightChartVal = document.getElementById('rightChartVal');
+            const exploreRateTxt = document.getElementById('exploreRateTxt');
+            const spiderRateTxt = document.getElementById('spiderRateTxt');
+            const cycleTimerTxt = document.getElementById('cycleTimerTxt');
+
+            const stageElements = [
+                document.getElementById('stage-0'),
+                document.getElementById('stage-1'),
+                document.getElementById('stage-2'),
+                document.getElementById('stage-3')
+            ];
+            const progElements = [
+                document.getElementById('prog-0'),
+                document.getElementById('prog-1'),
+                document.getElementById('prog-2'),
+                document.getElementById('prog-3')
+            ];
+
+            // --- Simulation State ---
+            let width = window.innerWidth;
+            let height = window.innerHeight;
+            let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+            let isPaused = false;
+            let targetFilamentCount = parseInt(densitySlider.value, 10);
+
+            // Root & Apex Coordinates
+            let rootX = 0;
+            let rootY = 0;
+            let apexNode = null;
+
+            // Tree Data Structures (Flat typed arrays / objects for 60fps performance)
+            let branches = [];          // Thousands of faint white neural branches
+            let hubNodes = [];          // Candidate nodes for Spider Cross-Links
+            let optimalPath = [];       // Chain of segments from Root to Apex
+            let secondaryBolts = [];    // Subtle offshoot arcs along the optimal path
+            let spiderLinks = [];       // Active magenta/purple cross-branch laser links
+            let particles = [];         // Floating & bursting energy particles
+            let optimalPulses = [];     // High-speed energy packets racing up the optimal path
+
+            // Pipeline State (0: Breadth, 1: Critic, 2: Local Repair, 3: Spider Collect)
+            let currentStage = 0;
+            let stageTimer = 0;
+            const stageDuration = 3.2; // seconds per stage
+            let criticScanY = 0;       // Horizontal scanline position during Critic stage
+
+            // Telemetry History Arrays
+            const CHART_POINTS = 70;
+            const entropySeries = new Array(CHART_POINTS).fill(0.5);
+            const breadthSeries = new Array(CHART_POINTS).fill(0.4);
+            const criticSeries = new Array(CHART_POINTS).fill(0.7);
+            const spiderFluxSeries = new Array(CHART_POINTS).fill(0.3);
+
+            // Frame timing
+            let lastTime = performance.now();
+            let frameCount = 0;
+            let fpsLastCheck = performance.now();
+            let globalTime = 0;
+
+            // --- Utility Functions ---
+            const rand = (min, max) => Math.random() * (max - min) + min;
+            const randInt = (min, max) => Math.floor(rand(min, max));
+            const clamp = (val, min, max) => Math.max(min, Math.min(max, val));
+
+            function addLogMessage(tag, msg, isMagenta = false) {
+                if (!eventLog) return;
+                const timeStr = (performance.now() / 1000).toFixed(2).padStart(6, '0');
+                const div = document.createElement('div');
+                div.className = 'truncate leading-tight';
+                div.innerHTML = `<span class="text-neutral-600">[${timeStr}]</span> <span class="${isMagenta ? 'text-[#ff007f] font-semibold' : 'text-neutral-200'}">${tag}</span> ${msg}`;
+                eventLog.appendChild(div);
+                while (eventLog.children.length > 9) {
+                    eventLog.removeChild(eventLog.firstChild);
+                }
+            }
+
+            // --- Resize Handling ---
+            function resizeCanvases() {
+                width = window.innerWidth;
+                height = window.innerHeight;
+                dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+                canvas.width = Math.floor(width * dpr);
+                canvas.height = Math.floor(height * dpr);
+                ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+                // Resize Telemetry Canvases
+                [leftChartCanvas, rightChartCanvas].forEach(c => {
+                    const rect = c.getBoundingClientRect();
+                    c.width = Math.max(100, Math.floor(rect.width * dpr));
+                    c.height = Math.max(40, Math.floor(rect.height * dpr));
+                });
+
+                rootX = width * 0.5;
+                rootY = height - (height < 700 ? 115 : 130);
+            }
+
+            // --- Generate Multi-Agent Tree-of-Thoughts & Optimal Path ---
+            function buildTreeOfThoughts() {
+                branches = [];
+                hubNodes = [];
+                optimalPath = [];
+                secondaryBolts = [];
+                spiderLinks = [];
+                particles = [];
+                optimalPulses = [];
+
+                rootX = width * 0.5;
+                rootY = height - (height < 700 ? 115 : 130);
+                const topMargin = height < 700 ? 82 : 98;
+                const availableHeight = Math.max(220, rootY - topMargin);
+                const maxDepth = 11;
+
+                // Update Hex Seed Readout
+                const hexSeed = '0x' + Math.floor(Math.random() * 0xFFFFFFFF).toString(16).toUpperCase().padStart(8, '0');
+                seedReadout.textContent = `${hexSeed.slice(0, 6)}..${hexSeed.slice(-4)}`;
+
+                // 1. Construct Backbone / Optimal Path Spine first so it reaches the exact top Apex
+                const spineNodes = [];
+                let currX = rootX;
+                let currY = rootY;
+                spineNodes.push({ x: currX, y: currY, depth: 0 });
+
+                const spineSteps = 22;
+                const stepY = availableHeight / spineSteps;
+
+                for (let i = 1; i <= spineSteps; i++) {
+                    const progress = i / spineSteps;
+                    // Organic lightning zig-zag that converges near top center
+                    constenvelope = Math.sin(progress * Math.PI) * Math.min(width * 0.16, 170);
+                    const jitterX = rand(-36, 36) * (1 - progress * 0.45);
+                    const centerPull = (rootX - currX) * 0.28;
+
+                    currX = clamp(currX + jitterX + centerPull, width * 0.2, width * 0.8);
+                    currY = rootY - i * stepY + rand(-4, 4);
+
+                    const node = {
+                        x: currX,
+                        y: currY,
+                        depth: Math.ceil(progress * maxDepth),
+                        isOptimal: true
+                    };
+                    spineNodes.push(node);
+
+                    if (i > 1 && i < spineSteps) {
+                        hubNodes.push(node);
+                    }
+                }
+
+                apexNode = spineNodes[spineNodes.length - 1];
+                apexCoords.textContent = `X:${(apexNode.x / width).toFixed(2)} Y:${(apexNode.y / height).toFixed(2)}`;
+
+                for (let i = 0; i < spineNodes.length - 1; i++) {
+                    const p1 = spineNodes[i];
+                    const p2 = spineNodes[i + 1];
+                    optimalPath.push({
+                        x1: p1.x,
+                        y1: p1.y,
+                        x2: p2.x,
+                        y2: p2.y,
+                        mx: (p1.x + p2.x) * 0.5 + rand(-9, 9),
+                        my: (p1.y + p2.y) * 0.5 + rand(-4, 4),
+                        phase: rand(0, Math.PI * 2)
+                    });
+                }
+
+                // Create secondary high-voltage sub-arcs branching off the Optimal Path
+                for (let i = 2; i < spineNodes.length - 2; i += 2) {
+                    if (Math.random() < 0.75) {
+                        let sx = spineNodes[i].x;
+                        let sy = spineNodes[i].y;
+                        const dir = Math.random() < 0.5 ? -1 : 1;
+                        const subSteps = randInt(2, 5);
+                        for (let s = 0; s < subSteps; s++) {
+                            const nx = sx + dir * rand(14, 38);
+                            const ny = sy - rand(14, 32);
+                            secondaryBolts.push({
+                                x1: sx, y1: sy,
+                                x2: nx, y2: ny,
+                                alpha: (1 - s / subSteps) * 0.55
+                            });
+                            sx = nx;
+                            sy = ny;
+                        }
+                    }
+                }
+
+                // 2. Generate Thousands of Faint White Fractal Tree Filaments
+                // Queue-based level generation from root + spine seeds to create a lush canopy
+                const queue = [];
+
+                // Initial fan out from Root
+                const initialTrunks = 14;
+                for (let i = 0; i < initialTrunks; i++) {
+                    const spread = (i / (initialTrunks - 1) - 0.5) * 1.45; // radians around straight up (-PI/2)
+                    const angle = -Math.PI / 2 + spread + rand(-0.06, 0.06);
+                    queue.push({
+                        x: rootX,
+                        y: rootY,
+                        angle: angle,
+                        depth: 1,
+                        energy: rand(0.6, 1.0)
+                    });
+                }
+
+                // Also seed branches from along the Optimal Path so tree wraps organically around the core
+                for (let i = 1; i < spineNodes.length - 2; i += 2) {
+                    const sn = spineNodes[i];
+                    const sideAngle = -Math.PI / 2 + (Math.random() < 0.5 ? -1 : 1) * rand(0.25, 0.85);
+                    queue.push({
+                        x: sn.x,
+                        y: sn.y,
+                        angle: sideAngle,
+                        depth: Math.max(1, Math.floor((i / spineNodes.length) * maxDepth)),
+                        energy: 0.9
+                    });
+                }
+
+                const maxCanopySpreadX = Math.min(width * 0.45, 620);
+
+                while (queue.length > 0 && branches.length < targetFilamentCount) {
+                    const curr = queue.shift();
+                    const depthNorm = curr.depth / maxDepth;
+
+                    // Segment length decreases with depth
+                    const baseLen = (availableHeight / maxDepth) * rand(0.68, 1.28) * (1 - depthNorm * 0.32);
+                    const nx = curr.x + Math.cos(curr.angle) * baseLen;
+                    const ny = curr.y + Math.sin(curr.angle) * baseLen;
+
+                    // Keep within viewport canopy bounds
+                    if (ny < topMargin - 15 || ny > rootY + 5) continue;
+                    if (Math.abs(nx - rootX) > maxCanopySpreadX) continue;
+
+                    // Curved control point for organic neural filament look
+                    const curveOffset = rand(-12, 12) * (1 - depthNorm * 0.4);
+                    const perpAngle = curr.angle + Math.PI * 0.5;
+                    const cx = (curr.x + nx) * 0.5 + Math.cos(perpAngle) * curveOffset;
+                    const cy = (curr.y + ny) * 0.5 + Math.sin(perpAngle) * curveOffset;
+
+                    // Base opacity: delicate translucent white filaments
+                    const baseAlpha = clamp((1 - depthNorm * 0.68) * rand(0.06, 0.24), 0.035, 0.28);
+
+                    const branchObj = {
+                        x1: curr.x,
+                        y1: curr.y,
+                        cx: cx,
+                        cy: cy,
+                        x2: nx,
+                        y2: ny,
+                        depth: curr.depth,
+                        depthNorm: depthNorm,
+                        baseAlpha: baseAlpha,
+                        lineWidth: Math.max(0.45, (1 - depthNorm * 0.75) * 1.45),
+                        phase: rand(0, Math.PI * 2),
+                        swayAmp: rand(0.6, 2.8) * depthNorm,
+                        repairedFlash: 0
+                    };
+
+                    branches.push(branchObj);
+
+                    // Save subset of mid/upper nodes as Spider Hub Nodes
+                    if (curr.depth >= 2 && curr.depth <= maxDepth - 1 && Math.random() < 0.24 && hubNodes.length < 380) {
+                        hubNodes.push({
+                            x: nx,
+                            y: ny,
+                            depth: curr.depth,
+                            branchRef: branchObj,
+                            isOptimal: false
+                        });
+                    }
+
+                    // Determine how many children to spawn to hit targetFilamentCount smoothly
+                    if (curr.depth < maxDepth) {
+                        const remainingBudget = targetFilamentCount - branches.length - queue.length;
+                        let childCount = 2;
+                        if (curr.depth < 4) {
+                            childCount = randInt(2, 4);
+                        } else if (remainingBudget > 600 && Math.random() < 0.65) {
+                            childCount = 3;
+                        } else if (remainingBudget < 150 && Math.random() < 0.4) {
+                            childCount = 1;
+                        }
+
+                        for (let c = 0; c < childCount; c++) {
+                            // Angle gently gravitates upward while fanning out
+                            const fan = (c - (childCount - 1) * 0.5) * rand(0.24, 0.52);
+                            const upwardBias = (-Math.PI / 2 - curr.angle) * 0.22;
+                            const nextAngle = clamp(
+                                curr.angle + fan + upwardBias + rand(-0.12, 0.12),
+                                -Math.PI + 0.18,
+                                -0.18
+                            );
+
+                            queue.push({
+                                x: nx,
+                                y: ny,
+                                angle: nextAngle,
+                                depth: curr.depth + 1,
+                                energy: curr.energy * 0.92
+                            });
+                        }
+                    }
+                }
+
+                // Top up with delicate terminal micro-filaments if still below target count
+                let safety = 0;
+                while (branches.length < targetFilamentCount && hubNodes.length > 10 && safety < 2500) {
+                    safety++;
+                    const parentHub = hubNodes[randInt(0, hubNodes.length)];
+                    const angle = -Math.PI / 2 + rand(-0.95, 0.95);
+                    const len = rand(14, 42);
+                    const nx = parentHub.x + Math.cos(angle) * len;
+                    const ny = parentHub.y + Math.sin(angle) * len;
+                    if (ny < topMargin) continue;
+
+                    branches.push({
+                        x1: parentHub.x,
+                        y1: parentHub.y,
+                        cx: (parentHub.x + nx) * 0.5 + rand(-6, 6),
+                        cy: (parentHub.y + ny) * 0.5 + rand(-4, 4),
+                        x2: nx,
+                        y2: ny,
+                        depth: parentHub.depth + 1,
+                        depthNorm: clamp((parentHub.depth + 1) / maxDepth, 0.2, 1),
+                        baseAlpha: rand(0.035, 0.11),
+                        lineWidth: rand(0.4, 0.75),
+                        phase: rand(0, Math.PI * 2),
+                        swayAmp: rand(1.0, 2.6),
+                        repairedFlash: 0
+                    });
+                }
+
+                // Seed initial travelling pulses along Optimal Path
+                for (let i = 0; i < 4; i++) {
+                    optimalPulses.push({
+                        progress: i * 0.25,
+                        speed: rand(0.42, 0.65)
+                    });
+                }
+
+                // Seed initial Spider Cross-Links
+                spawnSpiderLinks(18);
+
+                // Update HUD Counters
+                depthReadout.textContent = `L-${maxDepth} // ${branches.length.toLocaleString()} NODES`;
+                statFilaments.textContent = branches.length.toLocaleString();
+                statFrontier.textContent = Math.floor(branches.length * 0.14).toLocaleString();
+                statPruned.textContent = Math.floor(branches.length * 0.61).toLocaleString();
+
+                addLogMessage('TREE_INIT', `Synthesized ${branches.length} fractal thought filaments`, false);
+            }
+
+            // --- Spawn Spider Cross-Branch Laser Links & Particles ---
+            function spawnSpiderLinks(count = 5, nearPoint = null) {
+                if (hubNodes.length < 4) return;
+
+                for (let i = 0; i < count; i++) {
+                    let nodeA, nodeB;
+
+                    if (nearPoint) {
+                        // Find node closest to clicked point
+                        let bestDist = Infinity;
+                        for (let j = 0; j < 40; j++) {
+                            const cand = hubNodes[randInt(0, hubNodes.length)];
+                            const d = Math.hypot(cand.x - nearPoint.x, cand.y - nearPoint.y);
+                            if (d < bestDist) {
+                                bestDist = d;
+                                nodeA = cand;
+                            }
+                        }
+                    } else {
+                        nodeA = hubNodes[randInt(0, hubNodes.length)];
+                    }
+
+                    // Pick a cross-branch partner on a similar or adjacent level but separated horizontally
+                    let attempts = 0;
+                    do {
+                        nodeB = hubNodes[randInt(0, hubNodes.length)];
+                        attempts++;
+                    } while (
+                        attempts < 25 &&
+                        (nodeA === nodeB ||
+                         Math.abs(nodeA.x - nodeB.x) < 45 ||
+                         Math.abs(nodeA.y - nodeB.y) > 150)
+                    );
+
+                    if (!nodeA || !nodeB || nodeA === nodeB) continue;
+
+                    const isPurpleVariant = Math.random() < 0.45;
+                    const color = isPurpleVariant ? '#d900ff' : '#ff007f';
+
+                    spiderLinks.push({
+                        x1: nodeA.x,
+                        y1: nodeA.y,
+                        x2: nodeB.x,
+                        y2: nodeB.y,
+                        color: color,
+                        life: 0,
+                        maxLife: rand(0.9, 2.2),
+                        packetPos: 0,
+                        packetSpeed: rand(0.8, 1.8),
+                        branchRefA: nodeA.branchRef,
+                        branchRefB: nodeB.branchRef
+                    });
+
+                    // Highlight repaired branches briefly
+                    if (nodeA.branchRef) nodeA.branchRef.repairedFlash = 1.0;
+                    if (nodeB.branchRef) nodeB.branchRef.repairedFlash = 1.0;
+
+                    // Emit magenta/purple particle burst at endpoints
+                    spawnParticleBurst(nodeA.x, nodeA.y, color, 4);
+                    spawnParticleBurst(nodeB.x, nodeB.y, color, 5);
+                }
+
+                // Cap maximum simultaneous spider lasers for crisp 60fps
+                if (spiderLinks.length > 75) {
+                    spiderLinks.splice(0, spiderLinks.length - 75);
+                }
+            }
+
+            function spawnParticleBurst(x, y, color = '#ff007f', count = 6) {
+                for (let i = 0; i < count; i++) {
+                    const angle = rand(0, Math.PI * 2);
+                    const speed = rand(18, 95);
+                    particles.push({
+                        x: x,
+                        y: y,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed - rand(5, 25),
+                        size: rand(1.2, 2.8),
+                        color: color,
+                        alpha: 1.0,
+                        decay: rand(0.65, 1.45)
+                    });
+                }
+
+                if (particles.length > 360) {
+                    particles.splice(0, particles.length - 360);
+                }
+            }
+
+            // --- Pipeline Stage Synchronization ---
+            function updatePipelineUI(stageIdx, progressRatio) {
+                stageElements.forEach((el, idx) => {
+                    el.classList.remove('active-white', 'active-magenta');
+                    const dot = el.querySelector('.stage-dot');
+                    const prog = progElements[idx];
+
+                    if (idx === stageIdx) {
+                        const isMagentaStage = idx >= 2;
+                        el.classList.add(isMagentaStage ? 'active-magenta' : 'active-white');
+                        dot.className = `stage-dot w-1.5 h-1.5 ${isMagentaStage ? 'bg-[#ff007f] shadow-[0_0_8px_#ff007f]' : 'bg-white shadow-[0_0_8px_#fff]'} blink-dot`;
+                        prog.style.width = `${Math.min(100, progressRatio * 100).toFixed(1)}%`;
+                    } else if (idx < stageIdx) {
+                        dot.className = 'stage-dot w-1.5 h-1.5 bg-neutral-400';
+                        prog.style.width = '100%';
+                    } else {
+                        dot.className = 'stage-dot w-1.5 h-1.5 bg-neutral-700';
+                        prog.style.width = '0%';
+                    }
+                });
+            }
+
+            function triggerStageTransition(nextStage) {
+                currentStage = nextStage % 4;
+                stageTimer = 0;
+
+                if (currentStage === 0) {
+                    addLogMessage('STAGE_01', 'BREADTH: Expanding fractal search frontier', false);
+                } else if (currentStage === 1) {
+                    criticScanY = rootY;
+                    addLogMessage('STAGE_02', 'CRITIC: Evaluating heuristic Q-values & pruning', false);
+                } else if (currentStage === 2) {
+                    spawnSpiderLinks(10);
+                    addLogMessage('STAGE_03', 'LOCAL_REPAIR: Backtracking & patching subtrees', true);
+                } else if (currentStage === 3) {
+                    spawnSpiderLinks(24);
+                    // Trigger extra energy pulse up the optimal path
+                    optimalPulses.push({ progress: 0, speed: 0.85 });
+                    addLogMessage('STAGE_04', 'SPIDER_COLLECT: Cross-branch hyper-synthesis', true);
+                }
+            }
+
+            // --- Update Simulation Physics & State ---
+            function updateSimulation(dt) {
+                globalTime += dt;
+
+                // Advance 4-Stage Pipeline
+                stageTimer += dt;
+                const stageProgress = clamp(stageTimer / stageDuration, 0, 1);
+                updatePipelineUI(currentStage, stageProgress);
+                cycleTimerTxt.textContent = `0${(stageDuration - stageTimer).toFixed(2)}s`;
+
+                if (stageTimer >= stageDuration) {
+                    triggerStageTransition(currentStage + 1);
+                }
+
+                // Stage-specific dynamics
+                if (currentStage === 1) {
+                    // Critic Scanline sweeps from bottom root to top apex
+                    const topY = apexNode ? apexNode.y : 90;
+                    criticScanY = rootY - stageProgress * (rootY - topY);
+                }
+
+                // Continuous Spider Node Cross-Linking (More intense in Stage 2 & 3)
+                const spiderSpawnChance =
+                    currentStage === 3 ? 0.58 :
+                    currentStage === 2 ? 0.35 :
+                    currentStage === 1 ? 0.16 : 0.12;
+
+                if (Math.random() < spiderSpawnChance) {
+                    spawnSpiderLinks(currentStage === 3 ? 3 : 1);
+                }
+
+                // Ambient rising neural dust near root and optimal spine
+                if (Math.random() < 0.45 && optimalPath.length > 0) {
+                    const seg = optimalPath[randInt(0, optimalPath.length)];
+                    particles.push({
+                        x: seg.x1 + rand(-18, 18),
+                        y: seg.y1 + rand(-10, 10),
+                        vx: rand(-12, 12),
+                        vy: rand(-45, -18),
+                        size: rand(1.0, 2.2),
+                        color: Math.random() < 0.35 ? '#ff007f' : '#ffffff',
+                        alpha: rand(0.5, 0.95),
+                        decay: rand(0.4, 0.9)
+                    });
+                }
+
+                // Update Optimal Path Travelling Energy Pulses
+                for (let i = optimalPulses.length - 1; i >= 0; i--) {
+                    const p = optimalPulses[i];
+                    p.progress += p.speed * dt;
+                    if (p.progress >= 1.0) {
+                        // Burst at Apex when pulse reaches the top
+                        if (apexNode) {
+                            spawnParticleBurst(apexNode.x, apexNode.y, '#ffffff', 7);
+                            spawnParticleBurst(apexNode.x, apexNode.y, '#ff007f', 4);
+                        }
+                        p.progress = 0;
+                    }
+                }
+
+                // Update Spider Laser Links
+                for (let i = spiderLinks.length - 1; i >= 0; i--) {
+                    const link = spiderLinks[i];
+                    link.life += dt;
+                    link.packetPos = (link.packetPos + link.packetSpeed * dt) % 1.0;
+                    if (link.life >= link.maxLife) {
+                        spiderLinks.splice(i, 1);
+                    }
+                }
+
+                // Update Particles
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    const pt = particles[i];
+                    pt.x += pt.vx * dt;
+                    pt.y += pt.vy * dt;
+                    pt.vx *= 0.97;
+                    pt.vy *= 0.97;
+                    pt.alpha -= pt.decay * dt;
+                    if (pt.alpha <= 0.01) {
+                        particles.splice(i, 1);
+                    }
+                }
+
+                // Update Telemetry Charts Data (~20 times per second)
+                if (frameCount % 3 === 0) {
+                    const stageWave = currentStage === 0 ? 0.78 : currentStage === 1 ? 0.55 : currentStage === 2 ? 0.42 : 0.30;
+                    const nextEntropy = clamp(stageWave + Math.sin(globalTime * 3.5) * 0.12 + rand(-0.06, 0.06), 0.12, 0.95);
+                    const nextBreadth = clamp(0.45 + Math.cos(globalTime * 2.2) * 0.25 + (currentStage === 0 ? 0.25 : 0), 0.1, 0.95);
+
+                    entropySeries.push(nextEntropy);
+                    entropySeries.shift();
+                    breadthSeries.push(nextBreadth);
+                    breadthSeries.shift();
+
+                    const spiderNorm = clamp(spiderLinks.length / 45 + rand(-0.05, 0.05), 0.1, 0.98);
+                    const criticQ = clamp(0.68 + (currentStage === 3 ? 0.22 : 0.1) + Math.sin(globalTime * 4.0) * 0.08, 0.2, 0.99);
+
+                    spiderFluxSeries.push(spiderNorm);
+                    spiderFluxSeries.shift();
+                    criticSeries.push(criticQ);
+                    criticSeries.shift();
+
+                    // Live numeric HUD readouts
+                    leftChartVal.textContent = `${(nextEntropy * 3.8).toFixed(2)} bits`;
+                    rightChartVal.textContent = `${criticQ.toFixed(3)} Q`;
+                    exploreRateTxt.textContent = `${(nextBreadth * 100).toFixed(1)}%`;
+                    spiderRateTxt.textContent = `${Math.floor(spiderLinks.length * 4.2 + rand(10, 25))}/s`;
+                    statSpiders.textContent = spiderLinks.length;
+
+                    const conf = (98.2 + criticQ * 1.7).toFixed(2);
+                    statConfidence.textContent = `${conf}%`;
+                    confidenceBar.style.width = `${conf}%`;
+                }
+            }
+
+            // --- Render Main Tree-of-Thoughts Canvas ---
+            function renderMainCanvas() {
+                // Pitch-black background (#000000)
+                ctx.fillStyle = '#000000';
+                ctx.fillRect(0, 0, width, height);
+
+                // Subtle radial aura around Root and Apex
+                const rootAura = ctx.createRadialGradient(rootX, rootY, 2, rootX, rootY - 120, Math.min(width, height) * 0.55);
+                rootAura.addColorStop(0, 'rgba(255, 255, 255, 0.12)');
+                rootAura.addColorStop(0.35, 'rgba(217, 0, 255, 0.035)');
+                rootAura.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = rootAura;
+                ctx.fillRect(0, 0, width, height);
+
+                // 1. RENDER THOUSANDS OF FAINT WHITE FRACTAL FILAMENTS
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+
+                const breadthBoost = currentStage === 0 ? 1.35 : 1.0;
+
+                for (let i = 0, len = branches.length; i < len; i++) {
+                    const b = branches[i];
+
+                    // Organic neural sway
+                    const swayX = Math.sin(globalTime * 1.6 + b.phase) * b.swayAmp;
+
+                    // Pulse wave moving upwards from root
+                    const upwardWave = Math.sin(b.depth * 0.65 - globalTime * 3.8 + b.phase) * 0.045;
+                    let alpha = (b.baseAlpha + upwardWave) * breadthBoost;
+
+                    // Critic scanline highlight during Stage 2
+                    if (currentStage === 1 && Math.abs(b.y2 - criticScanY) < 28) {
+                        alpha += 0.22 * (1 - Math.abs(b.y2 - criticScanY) / 28);
+                    }
+
+                    // Flash magenta/white if recently repaired by a Spider node
+                    if (b.repairedFlash > 0.01) {
+                        b.repairedFlash *= 0.93;
+                        ctx.strokeStyle = `rgba(255, 65, 165, ${clamp(alpha + b.repairedFlash * 0.45, 0.05, 0.85)})`;
+                        ctx.lineWidth = b.lineWidth + 0.6;
+                    } else {
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${clamp(alpha, 0.025, 0.45)})`;
+                        ctx.lineWidth = b.lineWidth;
+                    }
+
+                    ctx.beginPath();
+                    ctx.moveTo(b.x1 + swayX * 0.4, b.y1);
+                    ctx.quadraticCurveTo(b.cx + swayX * 0.7, b.cy, b.x2 + swayX, b.y2);
+                    ctx.stroke();
+                }
+
+                // Critic Horizontal Scanline Beam (Stage 2)
+                if (currentStage === 1) {
+                    const scanGrad = ctx.createLinearGradient(width * 0.15, criticScanY, width * 0.85, criticScanY);
+                    scanGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+                    scanGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.35)');
+                    scanGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                    ctx.strokeStyle = scanGrad;
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath();
+                    ctx.moveTo(width * 0.15, criticScanY);
+                    ctx.lineTo(width * 0.85, criticScanY);
+                    ctx.stroke();
+                }
+
+                // 2. RENDER SPIDER NODES & CROSS-BRANCH LASERS (#ff007f / #d900ff)
+                for (let i = 0, len = spiderLinks.length; i < len; i++) {
+                    const link = spiderLinks[i];
+                    const lifeRatio = link.life / link.maxLife;
+                    // Smooth fade-in and fade-out envelope
+                    const fade = Math.sin(lifeRatio * Math.PI);
+
+                    // Outer magenta/purple laser glow
+                    ctx.strokeStyle = link.color;
+                    ctx.globalAlpha = fade * 0.35;
+                    ctx.lineWidth = 3.2;
+                    ctx.beginPath();
+                    ctx.moveTo(link.x1, link.y1);
+                    ctx.lineTo(link.x2, link.y2);
+                    ctx.stroke();
+
+                    // Crisp inner laser core
+                    ctx.strokeStyle = '#ff99dd';
+                    ctx.globalAlpha = fade * 0.9;
+                    ctx.lineWidth = 1.1;
+                    ctx.beginPath();
+                    ctx.moveTo(link.x1, link.y1);
+                    ctx.lineTo(link.x2, link.y2);
+                    ctx.stroke();
+
+                    // Travelling data packet along the Spider laser
+                    const px = link.x1 + (link.x2 - link.x1) * link.packetPos;
+                    const py = link.y1 + (link.y2 - link.y1) * link.packetPos;
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.globalAlpha = fade;
+                    ctx.beginPath();
+                    ctx.arc(px, py, 2.1, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Glowing Spider Endpoint Nodes
+                    ctx.fillStyle = link.color;
+                    ctx.globalAlpha = fade * 0.95;
+                    ctx.beginPath();
+                    ctx.arc(link.x1, link.y1, 2.8, 0, Math.PI * 2);
+                    ctx.arc(link.x2, link.y2, 2.8, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Subtle geometric reticle on active Spider collect nodes
+                    if (currentStage >= 2 && i % 4 === 0) {
+                        ctx.strokeStyle = link.color;
+                        ctx.lineWidth = 0.8;
+                        ctx.strokeRect(link.x2 - 5, link.y2 - 5, 10, 10);
+                    }
+                }
+                ctx.globalAlpha = 1.0;
+
+                // 3. RENDER SECONDARY LIGHTNING OFFSHOOTS
+                for (let i = 0; i < secondaryBolts.length; i++) {
+                    const sb = secondaryBolts[i];
+                    const flicker = 0.6 + 0.4 * Math.sin(globalTime * 18 + i);
+                    ctx.strokeStyle = `rgba(235, 245, 255, ${sb.alpha * flicker})`;
+                    ctx.lineWidth = 1.1;
+                    ctx.beginPath();
+                    ctx.moveTo(sb.x1 + rand(-1.2, 1.2), sb.y1);
+                    ctx.lineTo(sb.x2 + rand(-1.2, 1.2), sb.y2);
+                    ctx.stroke();
+                }
+
+                // 4. RENDER OPTIMAL PATH (Blazing White Lightning from Bottom Root to Top Apex)
+                if (optimalPath.length > 0) {
+                    // Build continuous path with high-frequency micro-jitter for live electricity feel
+                    const traceOptimalPath = (jitterScale = 1.0) => {
+                        ctx.beginPath();
+                        ctx.moveTo(optimalPath[0].x1, optimalPath[0].y1);
+                        for (let i = 0; i < optimalPath.length; i++) {
+                            const seg = optimalPath[i];
+                            const jx = Math.sin(globalTime * 28 + seg.phase) * 2.2 * jitterScale;
+                            const jy = Math.cos(globalTime * 24 + seg.phase) * 1.2 * jitterScale;
+                            ctx.quadraticCurveTo(
+                                seg.mx + jx,
+                                seg.my + jy,
+                                seg.x2 + (i === optimalPath.length - 1 ? 0 : jx * 0.5),
+                                seg.y2
+                            );
+                        }
+                    };
+
+                    // Layer A: Wide Atmospheric Bloom
+                    ctx.save();
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+                    ctx.lineWidth = 14;
+                    ctx.lineCap = 'round';
+                    ctx.lineJoin = 'round';
+                    ctx.shadowColor = '#ffffff';
+                    ctx.shadowBlur = 28;
+                    traceOptimalPath(0.4);
+                    ctx.stroke();
+
+                    // Layer B: Mid High-Energy Glow
+                    ctx.strokeStyle = 'rgba(240, 248, 255, 0.52)';
+                    ctx.lineWidth = 5.5;
+                    ctx.shadowBlur = 16;
+                    traceOptimalPath(0.8);
+                    ctx.stroke();
+
+                    // Layer C: Blazing White Core Filament
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2.4;
+                    ctx.shadowBlur = 10;
+                    traceOptimalPath(1.1);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Travelling High-Energy Pulses racing from Root to Apex
+                    for (let i = 0; i < optimalPulses.length; i++) {
+                        const pulse = optimalPulses[i];
+                        const floatIdx = pulse.progress * optimalPath.length;
+                        const segIdx = Math.min(optimalPath.length - 1, Math.floor(floatIdx));
+                        const segT = floatIdx - segIdx;
+                        const seg = optimalPath[segIdx];
+
+                        const px = seg.x1 + (seg.x2 - seg.x1) * segT;
+                        const py = seg.y1 + (seg.y2 - seg.y1) * segT;
+
+                        const pulseGrad = ctx.createRadialGradient(px, py, 1, px, py, 22);
+                        pulseGrad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                        pulseGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.55)');
+                        pulseGrad.addColorStop(0.7, 'rgba(255, 0, 127, 0.25)');
+                        pulseGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+
+                        ctx.fillStyle = pulseGrad;
+                        ctx.beginPath();
+                        ctx.arc(px, py, 22, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+
+                // 5. RENDER FLOATING & BURSTING PARTICLES
+                for (let i = 0, len = particles.length; i < len; i++) {
+                    const pt = particles[i];
+                    ctx.fillStyle = pt.color;
+                    ctx.globalAlpha = clamp(pt.alpha, 0, 1);
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1.0;
+
+                // 6. RENDER ROOT ORIGIN SINGULARITY (Bottom Center) & APEX TARGET (Top)
+                // Root Singularity Glow
+                const rootCoreGrad = ctx.createRadialGradient(rootX, rootY, 1, rootX, rootY, 36);
+                rootCoreGrad.addColorStop(0, '#ffffff');
+                rootCoreGrad.addColorStop(0.25, 'rgba(255, 255, 255, 0.85)');
+                rootCoreGrad.addColorStop(0.55, 'rgba(255, 0, 127, 0.35)');
+                rootCoreGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                ctx.fillStyle = rootCoreGrad;
+                ctx.beginPath();
+                ctx.arc(rootX, rootY, 36, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Root HUD Ring
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.arc(rootX, rootY, 9 + Math.sin(globalTime * 5) * 2, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Apex Node Glow & Target Reticle
+                if (apexNode) {
+                    const ax = apexNode.x;
+                    const ay = apexNode.y;
+
+                    const apexGrad = ctx.createRadialGradient(ax, ay, 1, ax, ay, 32);
+                    apexGrad.addColorStop(0, '#ffffff');
+                    apexGrad.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)');
+                    apexGrad.addColorStop(0.65, 'rgba(255, 0, 127, 0.45)');
+                    apexGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                    ctx.fillStyle = apexGrad;
+                    ctx.beginPath();
+                    ctx.arc(ax, ay, 32, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Rotating Cyberpunk Diamond Reticle around Apex
+                    ctx.save();
+                    ctx.translate(ax, ay);
+                    ctx.rotate(globalTime * 0.9);
+                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                    ctx.lineWidth = 1.2;
+                    ctx.strokeRect(-8, -8, 16, 16);
+                    ctx.restore();
+
+                    // Apex Callout Label
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+                    ctx.font = '600 10px "JetBrains Mono", monospace';
+                    ctx.fillText('OPTIMAL_APEX // Ω', ax + 16, ay + 3);
+                }
+
+                ctx.restore();
+            }
+
+            // --- Render Left & Right Real-Time Scrolling Line Charts ---
+            function renderTelemetryChart(cCtx, cCanvas, primarySeries, secondarySeries, primaryColor, secondaryColor) {
+                const w = cCanvas.width;
+                const h = cCanvas.height;
+                cCtx.clearRect(0, 0, w, h);
+
+                // Subtle horizontal grid lines
+                cCtx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+                cCtx.lineWidth = 1;
+                for (let g = 1; g <= 3; g++) {
+                    const gy = (h / 4) * g;
+                    cCtx.beginPath();
+                    cCtx.moveTo(0, gy);
+                    cCtx.lineTo(w, gy);
+                    cCtx.stroke();
+                }
+
+                const drawSeries = (series, strokeColor, fillColor, lineWidth) => {
+                    const stepX = w / (series.length - 1);
+                    cCtx.beginPath();
+                    for (let i = 0; i < series.length; i++) {
+                        const x = i * stepX;
+                        const y = h - series[i] * (h * 0.82) - h * 0.08;
+                        if (i === 0) cCtx.moveTo(x, y);
+                        else cCtx.lineTo(x, y);
+                    }
+                    cCtx.strokeStyle = strokeColor;
+                    cCtx.lineWidth = lineWidth * dpr;
+                    cCtx.stroke();
+
+                    if (fillColor) {
+                        cCtx.lineTo(w, h);
+                        cCtx.lineTo(0, h);
+                        cCtx.closePath();
+                        cCtx.fillStyle = fillColor;
+                        cCtx.fill();
+                    }
+                };
+
+                // Secondary subtle wave
+                drawSeries(secondarySeries, secondaryColor, null, 1.0);
+                // Primary telemetry wave with fill
+                drawSeries(
+                    primarySeries,
+                    primaryColor,
+                    primaryColor === '#ffffff' ? 'rgba(255, 255, 255, 0.09)' : 'rgba(255, 0, 127, 0.14)',
+                    1.6
+                );
+            }
+
+            // --- Main 60 FPS Animation Loop ---
+            function animate(now) {
+                requestAnimationFrame(animate);
+
+                const dt = Math.min((now - lastTime) / 1000, 0.05);
+                lastTime = now;
+
+                // FPS Counter
+                frameCount++;
+                if (now - fpsLastCheck >= 500) {
+                    const currentFps = Math.min(60, Math.round((frameCount * 1000) / (now - fpsLastCheck)));
+                    fpsCounter.textContent = currentFps;
+                    frameCount = 0;
+                    fpsLastCheck = now;
+                }
+
+                if (!isPaused) {
+                    updateSimulation(dt);
+                }
+
+                renderMainCanvas();
+                renderTelemetryChart(leftChartCtx, leftChartCanvas, entropySeries, breadthSeries, '#ffffff', 'rgba(160, 175, 195, 0.4)');
+                renderTelemetryChart(rightChartCtx, rightChartCanvas, spiderFluxSeries, criticSeries, '#ff007f', 'rgba(255, 255, 255, 0.45)');
+            }
+
+            // --- Interactive Event Listeners ---
+            window.addEventListener('resize', () => {
+                resizeCanvases();
+                buildTreeOfThoughts();
+            });
+
+            // Click/Tap Canvas to inject localized Spider Cross-Link Burst
+            canvas.addEventListener('pointerdown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const clickPt = {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+                spawnParticleBurst(clickPt.x, clickPt.y, '#ff007f', 14);
+                spawnParticleBurst(clickPt.x, clickPt.y, '#ffffff', 8);
+                spawnSpiderLinks(14, clickPt);
+                addLogMessage('USER_INJECT', `Spider cluster @ (${Math.round(clickPt.x)}, ${Math.round(clickPt.y)})`, true);
+            });
+
+            // Density Slider
+            densitySlider.addEventListener('input', (e) => {
+                targetFilamentCount = parseInt(e.target.value, 10);
+                densityValue.textContent = targetFilamentCount;
+            });
+
+            densitySlider.addEventListener('change', () => {
+                buildTreeOfThoughts();
+            });
+
+            // Re-Seed Tree Button
+            btnReseed.addEventListener('click', () => {
+                buildTreeOfThoughts();
+            });
+
+            // Spider Sweep Button
+            btnSpiderBurst.addEventListener('click', () => {
+                triggerStageTransition(3); // Jump to Spider Collect stage
+                spawnSpiderLinks(32);
+                addLogMessage('MANUAL_OVERRIDE', 'Triggered global SPIDER_COLLECT laser sweep', true);
+            });
+
+            // Step Pipeline Stage Button
+            btnStepStage.addEventListener('click', () => {
+                triggerStageTransition(currentStage + 1);
+            });
+
+            // Clicking directly on any of the 4 Pipeline Stage boxes
+            stageElements.forEach((el) => {
+                el.addEventListener('click', () => {
+                    const st = parseInt(el.getAttribute('data-stage'), 10);
+                    triggerStageTransition(st);
+                });
+            });
+
+            // Pause / Resume Button
+            btnPause.addEventListener('click', () => {
+                isPaused = !isPaused;
+                btnPause.textContent = isPaused ? 'RESUME' : 'PAUSE';
+                btnPause.classList.toggle('border-white', isPaused);
+                addLogMessage('SYS_STATE', isPaused ? 'Simulation clock paused' : 'Simulation clock resumed', false);
+            });
+
+            // --- Initialize on Load ---
+            window.onload = () => {
+                resizeCanvases();
+                buildTreeOfThoughts();
+                triggerStageTransition(0);
+                requestAnimationFrame(animate);
+            };
+        })();
+    </script>
+</body>
+</html>
